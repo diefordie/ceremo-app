@@ -10,6 +10,6 @@ router.get('/wedding-organizer/', authenticateToken, woController.getWo); //by n
 //admin-only
 router.put('/wedding-organizer/edit/:id', authenticateToken, isAdmin, woController.editWo);
 router.post('/wedding-organizer/add', authenticateToken, isAdmin, woController.addWo);
-//router.delete('/wedding-organizer/delete/:id', authenticateToken, woController.deleteWo);
+router.delete('/wedding-organizer/delete/:id', authenticateToken, isAdmin,woController.deleteWo);
 
 export default router;

@@ -6,6 +6,7 @@ import bookingRoutes from './src/routes/bookingRoutes.js';
 import gedungRoutes from './src/routes/gedungRoutes.js';
 import woRoutes from './src/routes/woRoutes.js';
 import paymentRoutes from './src/routes/paymentRoutes.js';
+import usersRoutes from './src/routes/usersRoutes.js';
 // Import rute lain di sini
 
 const app = express();
@@ -23,6 +24,7 @@ app.use('/api', bookingRoutes);
 app.use('/api', gedungRoutes);
 app.use('/api', woRoutes);
 app.use('/api', paymentRoutes);
+app.use('/api', usersRoutes);
 // Gunakanprofile rute lain di sini
 
 // Error handling middleware

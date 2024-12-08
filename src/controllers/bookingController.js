@@ -39,11 +39,6 @@ export const bookingController = {
             const hasilQuery = result[0][0];
             console.log(result)
 
-            response.cookie(
-                'id_booking', 
-                hasilQuery.id_booking,{  
-                maxAge: 3_600 * 1000
-                })
             return response 
                 .status(201)        
                 .json({ success: true, 

@@ -1,9 +1,5 @@
 USE ceremo2;
 
-CREATE USER 'dieefirdii'@'localhost' IDENTIFIED BY 'dieforyou';
-GRANT EXECUTE ON ceremo2.* TO 'dieefordii'@'localhost';
-
-flush privileges;
 
 --    CREATE TABLE
 
@@ -141,7 +137,6 @@ BEGIN
     DELETE FROM Payment WHERE id_booking = NEW.id_booking;
   END IF;
 END
-
 
 
 
@@ -452,38 +447,38 @@ DELIMITER ;
 
 DELIMITER //
 
-CREATE PROCEDURE DeleteWeddingOrganizer(
-    IN p_id_wo INT,
-    OUT p_result VARCHAR(255)
+CREATE OR REPLACE PROCEDURE DeleteWeddingOrganizer(
+    IN p_id_wo INT
 )
 BEGIN
     DECLARE wo_exists INT;
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;
-        SET p_result = CONCAT('Error: ', SQLERRM);
+        RESIGNAL;
     END;
 
     START TRANSACTION;
 
-    -- Periksa apakah WO ada
-    SELECT COUNT(*) INTO wo_exists FROM Wedding_Organizer WHERE id_wo = p_id_wo;
+    -- Periksa apakah gedung ada
+    SELECT COUNT(id_wo) INTO wo_exists FROM Wedding_Organizer WHERE id_wo = p_id_wo;
 
     IF wo_exists = 0 THEN
-        SET p_result = 'Error: Wedding Organizer tidak ditemukan';
         ROLLBACK;
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Gagal menghapus wedding organizer, wedding organizer tidak ditemukan';
     ELSE
         -- Periksa apakah ada booking yang terkait
         IF EXISTS (SELECT 1 FROM Booking WHERE id_wo = p_id_wo) THEN
-            SET p_result = 'Error: Tidak dapat menghapus Wedding Organizer karena masih ada booking terkait';
             ROLLBACK;
+            SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Gagal menghapus wedding organizer, wedding organizer sedang digunakan';
         ELSE
             DELETE FROM Wedding_Organizer WHERE id_wo = p_id_wo;
-            SET p_result = 'Wedding Organizer berhasil dihapus';
             COMMIT;
         END IF;
     END IF;
-END //
+END//
 
 DELIMITER ;
 
@@ -532,7 +527,7 @@ BEGIN
 
     -- Set tanggal booking ke waktu saat ini
     SET p_tgl_booking = CURDATE();
-    SET p_deskripsi = 'Pesanan ini sedang diproses';
+    SET p_deskripsi = 'Pesanan ini sedang diproses, silahkan cek status pesanan secara berkala';
 
     START TRANSACTION;
     
@@ -609,7 +604,7 @@ BEGIN
     START TRANSACTION;
     
     -- Cek apakah pesanan sudah ada, milik pengguna yang benar, dan statusnya
-    SELECT COUNT(*), id_wo, id_gedung, status_pesanan 
+    SELECT COUNT(id_booking), id_wo, id_gedung, status_pesanan 
     INTO booking_exists, p_id_wo, p_id_gedung, p_status_pesanan
     FROM Booking
     WHERE id_booking = p_id_booking AND id_pengguna = p_id_pengguna;
@@ -832,6 +827,31 @@ BEGIN
     COMMIT;
 END
 
+CREATE OR REPLACE PROCEDURE GetAllUsers(
+    IN p_offset INT,
+    IN p_limit INT
+)
+BEGIN
+
+    declare exit handler for sqlexception
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+
+    SELECT id_pengguna, nama, email
+    FROM Pengguna
+    ORDER BY id_pengguna
+    LIMIT p_offset, p_limit;
+
+    COMMIT;
+END
+
+
+
 CREATE or replace PROCEDURE GetBookingDetailsByUserId(
     IN p_user_id INT,
     IN p_page INT,
@@ -855,6 +875,7 @@ BEGIN
     WHERE id_pengguna = p_user_id;
 
     -- Get paginated results
+    
     SELECT 
         b.id_booking,
         g.nama_gedung,
