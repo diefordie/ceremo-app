@@ -39,31 +39,34 @@ export const gedungController = {
                     });
             })
         }
-        db.query('CALL SearchGedungByName(?)', [name],(error, result) => {
-            if (error) {
-                const sqlErrorCode = error.sqlState;
-                if (!sqlClientErrors.includes(sqlErrorCode)) {
-                    console.error('SQL Error:', error);
+        else {
+            db.query('CALL SearchGedungByName(?)', [name],(error, result) => {
+                if (error) {
+                    const sqlErrorCode = error.sqlState;
+                    if (!sqlClientErrors.includes(sqlErrorCode)) {
+                        console.error('SQL Error:', error);
+                        return response
+                            .status(500)
+                            .json({ success: false, message: 'Terjadi kesalahan pada server' });
+                    }
                     return response
-                        .status(500)
-                        .json({ success: false, message: 'Terjadi kesalahan pada server' });
+                        .status(400)
+                        .json({ success: false, message: error.message });
+    
                 }
+                const hasilQuery = result[0]
+    
                 return response
-                    .status(400)
-                    .json({ success: false, message: error.message });
-
-            }
-            const hasilQuery = result[0]
-
-            return response
-                .status(200)
-                .json({ 
-                    success: true, 
-                    message: 'Data gedung berhasil didapatkan',
-                    data: hasilQuery,
-                    totalGedung: hasilQuery.length,
-                });
-        })
+                    .status(200)
+                    .json({ 
+                        success: true, 
+                        message: 'Data gedung berhasil didapatkan',
+                        data: hasilQuery,
+                        totalGedung: hasilQuery.length,
+                    });
+            })
+            
+        }
         
     },
 

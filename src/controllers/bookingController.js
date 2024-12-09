@@ -20,10 +20,12 @@ export const bookingController = {
             userId,
             body.namaGedung,
             body.namaWo,
-            body.tglAcara
+            body.tglAcara,
+            body.lokasi_gedung
+            
         ]
 
-        db.query('CALL CreateBooking(?, ?, ?, ?)', data, (error, result) => {
+        db.query('CALL CreateBooking(?, ?, ?, ?, ?)', data, (error, result) => {
             if (error) {
                 console.error('SQL Error:', error);
                 const sqlErrorCode = error.sqlState;
@@ -37,12 +39,11 @@ export const bookingController = {
                     .json({ success: false, message: error.message });
             }
             const hasilQuery = result[0][0];
-            console.log(result)
 
             return response 
                 .status(201)        
                 .json({ success: true, 
-                        message: 'Pesanan berhasil dibuat, mohon melakukan pembayaran sebelum 24 jam', 
+                        message: 'Pesanan berhasil dibuat, mohon melakukan pembayaran setelah pesanan anda dikonfirmasi oleh admin', 
                         data: {
                             id_booking: hasilQuery.id_booking,
                             nama_gedung: hasilQuery.nama_gedung,
@@ -126,6 +127,31 @@ export const bookingController = {
         })
 
 
+    },
+
+    confirmBooking: (request, response) => {
+        const idBooking = request.params.id;
+        
+        db.query('CALL ConfirmBooking(?)', [idBooking], (error, result) => {
+            if (error) {
+                const sqlErrorCode = error.sqlState;
+                if (!sqlClientErrors.includes(sqlErrorCode)) {
+                    console.error('SQL Error:', error);
+                    return response
+                        .status(500)
+                        .json({ success: false, message: 'Terjadi kesalahan pada server' });
+                }
+                return response
+                    .status(400)
+                    .json({ success: false, message: error.message });
+            }
+
+            return response
+                .status(200)
+                .json({ success: true,
+                        message: 'Berhasil mengkonfirmasi pesanan',
+                    });
+        })
     },
 
 

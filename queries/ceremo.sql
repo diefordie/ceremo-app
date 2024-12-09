@@ -1,6 +1,5 @@
 USE ceremo2;
 
-
 --    CREATE TABLE
 
     CREATE TABLE Pengguna (
@@ -10,12 +9,6 @@ USE ceremo2;
         email VARCHAR(100) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL
     );
-
-
-INSERT INTO Pengguna (nama, alamat, email, password, role) VALUES ('Admin', 'Jl. Jend. Sudirman No. 1', 'adminku@ceremo.com', SHA2('adminlalala', 256), 'admin');
-
-SHOW CREATE TABLE Pengguna;
-
 
     CREATE TABLE Gedung (
         id_gedung INT AUTO_INCREMENT PRIMARY KEY,
@@ -28,7 +21,7 @@ SHOW CREATE TABLE Pengguna;
 
     CREATE TABLE Wedding_Organizer (
         id_wo INT AUTO_INCREMENT PRIMARY KEY,
-        nama_wo VARCHAR(100) NOT NULL,
+        nama_wo VARCHAR(100) NOT NULL UNIQUE,
         harga_paket DECIMAL(10, 2) NOT NULL,
         deskripsi TEXT
     );
@@ -61,8 +54,6 @@ ADD COLUMN deskripsi TEXT DEFAULT 'Tidak ada deskripsi';
 
 --    TRIGGER
 
-DELIMITER //
-
 CREATE TRIGGER update_booking_description
 BEFORE UPDATE ON Booking
 FOR EACH ROW
@@ -79,70 +70,29 @@ BEGIN
                 SET NEW.deskripsi = CONCAT('Status pesanan telah diubah menjadi ', NEW.status_pesanan);
         END CASE;
     END IF;
-END//
-
-DELIMITER ;
-
--- trigger ketika booking cancelled maka pembayaran dihapus
-DELIMITER //
-
-CREATE or replace TRIGGER AfterUpdateBookingStatus
-AFTER UPDATE ON Booking
-FOR EACH ROW
-BEGIN
-    IF NEW.status_pesanan = 'cancelled' THEN
-        UPDATE Payment
-        SET is_deleted = TRUE, deleted_at = NOW()
-        WHERE id_booking = NEW.id_booking;
-    END IF;
-END //
-
-DELIMITER ;
-
-
-DELIMITER //
-
-CREATE or replace TRIGGER after_booking_confirmed
-AFTER UPDATE ON Booking
-FOR EACH ROW
-BEGIN
-    DECLARE v_harga_paket DECIMAL(10,2);
-    DECLARE v_deskripsi TEXT;
-
-    IF NEW.status_pesanan = 'confirmed' THEN
-        -- Hitung harga paket menggunakan function
-        SET v_harga_paket = CalculatePackagePrice(NEW.id_wo, NEW.id_gedung);
-
-        -- Buat deskripsi
-        SELECT CONCAT('Transaksi oleh ', p.nama, ' kepada ', wo.nama_wo, ' dan ', g.nama_gedung)
-        INTO v_deskripsi
-        FROM Pengguna p
-        JOIN Wedding_Organizer wo ON wo.id_wo = NEW.id_wo
-        JOIN Gedung g ON g.id_gedung = NEW.id_gedung
-        WHERE p.id_pengguna = NEW.id_pengguna;
-
-        -- Insert ke Payment
-        INSERT INTO Payment (id_booking, harga_paket, deskripsi)
-        VALUES (NEW.id_booking, v_harga_paket, v_deskripsi);
-    END IF;
-END //
-
-DELIMITER ;
-
-CREATE TRIGGER delete_payment_on_cancel
-AFTER UPDATE ON Booking
-FOR EACH ROW
-BEGIN
-  IF NEW.status_pesanan = 'cancelled' THEN
-    DELETE FROM Payment WHERE id_booking = NEW.id_booking;
-  END IF;
 END
+
+
+CREATE or replace TRIGGER BeforeDeleteUser
+BEFORE DELETE ON Pengguna
+FOR EACH ROW
+BEGIN
+    DELETE FROM Booking WHERE id_pengguna = OLD.id_pengguna;
+END
+
+CREATE or replace TRIGGER BeforeDeleteBooking
+BEFORE DELETE ON Booking
+FOR EACH ROW
+BEGIN
+    DELETE FROM Payment WHERE id_booking = OLD.id_booking;
+END
+
+
 
 
 
 -- PROCEDURE
 
-DELIMITER //
 
 CREATE OR REPLACE PROCEDURE RegisterUser(
     IN p_nama VARCHAR(100),
@@ -176,6 +126,40 @@ BEGIN
 
     COMMIT;
 END
+
+CREATE OR REPLACE PROCEDURE AddAdmin(
+    IN p_nama VARCHAR(100),
+    IN p_alamat TEXT,
+    IN p_email VARCHAR(100),
+    IN p_password VARCHAR(255)
+)
+BEGIN
+    DECLARE email_exists BOOLEAN;
+    START TRANSACTION;
+
+    -- Cek apakah email sudah ada di dalam tabel
+    SELECT EXISTS (
+        SELECT 1 FROM Pengguna 
+        WHERE email = p_email
+        LIMIT 1
+    ) INTO email_exists;
+
+    IF email_exists THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Email sudah terdaftar';
+    ELSE
+        -- Jika email belum terdaftar, lakukan insert dengan password yang di-hash
+        INSERT INTO Pengguna (nama, alamat, email, password, role)
+        VALUES (p_nama, p_alamat, p_email, SHA2(p_password, 256), 'admin');
+
+        -- Mengembalikan ID pengguna yang baru didaftarkan
+        SELECT LAST_INSERT_ID() AS userId;
+    END IF;
+
+    COMMIT;
+END
+
+CALL AddAdmin('Admin 2', 'Jl. Admin 2', 'admin2@ceremo', 'password');
 
 CREATE OR REPLACE PROCEDURE LoginUser(
     IN p_email VARCHAR(100),
@@ -232,7 +216,29 @@ BEGIN
     COMMIT;
 END;
 
+CREATE OR REPLACE PROCEDURE hapusPengguna(
+    IN p_id_pengguna INT
+)
+BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
 
+    START TRANSACTION;
+
+    DELETE FROM Pengguna
+    WHERE id_pengguna = p_id_pengguna;
+
+    IF ROW_COUNT() = 0 THEN
+        ROLLBACK;
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Pengguna tidak ditemukan';
+    ELSE
+        COMMIT;
+    END IF;
+END
 
 
 CREATE or replace PROCEDURE EditProfile(
@@ -276,7 +282,7 @@ BEGIN
     END IF;
 END//
 
-DELIMITER //
+
 
 CREATE or replace PROCEDURE EditGedung(
     IN p_id_gedung INT,
@@ -315,7 +321,6 @@ BEGIN
     END IF;
 END//
 
-DELIMITER //
 
 CREATE or replace PROCEDURE EditWeddingOrganizer(
     IN p_id_wo INT,
@@ -443,9 +448,6 @@ BEGIN
     END IF;
 END//
 
-DELIMITER ;
-
-DELIMITER //
 
 CREATE OR REPLACE PROCEDURE DeleteWeddingOrganizer(
     IN p_id_wo INT
@@ -480,8 +482,6 @@ BEGIN
     END IF;
 END//
 
-DELIMITER ;
-
 
 CREATE or REPLACE PROCEDURE UpdateBookingStatus(
     IN p_id_booking INT,
@@ -509,7 +509,8 @@ CREATE OR REPLACE PROCEDURE CreateBooking(
     IN p_id_pengguna INT,
     IN p_nama_gedung VARCHAR(100),
     IN p_nama_wo VARCHAR(100),
-    IN p_tgl_acara DATE
+    IN p_tgl_acara DATE,
+    IN p_lokasi VARCHAR(100)
 )
 BEGIN
     DECLARE p_id_gedung INT DEFAULT NULL;
@@ -534,7 +535,7 @@ BEGIN
     -- Mencari id_gedung berdasarkan nama_gedung
     SELECT id_gedung INTO p_id_gedung
     FROM Gedung
-    WHERE nama_gedung = p_nama_gedung;
+    WHERE nama_gedung = p_nama_gedung AND lokasi = p_lokasi; 
     
     -- Check if gedung was found
     IF p_id_gedung IS NULL THEN
@@ -583,12 +584,13 @@ BEGIN
 END;
 
 
-CREATE or REPLACE PROCEDURE CreatePayment(
+CREATE OR REPLACE PROCEDURE CreatePayment(
     IN p_id_booking INT,
     IN p_id_pengguna INT
 )
 BEGIN
     DECLARE booking_exists INT;
+    DECLARE payment_exists INT;
     DECLARE p_id_wo INT;
     DECLARE p_id_gedung INT;
     DECLARE p_harga_paket DECIMAL(10, 2);
@@ -609,11 +611,21 @@ BEGIN
     FROM Booking
     WHERE id_booking = p_id_booking AND id_pengguna = p_id_pengguna;
 
+    -- Cek apakah pembayaran untuk booking ini sudah ada
+    SELECT COUNT(id_pembayaran) INTO payment_exists
+    FROM Payment
+    WHERE id_booking = p_id_booking;
+
     IF booking_exists = 0 THEN
         -- Jika pesanan tidak ada atau bukan milik pengguna, batalkan transaksi
         ROLLBACK;
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Pesanan tidak ditemukan atau bukan milik pengguna ini';
+    ELSEIF payment_exists > 0 THEN
+        -- Jika pembayaran untuk booking ini sudah ada, batalkan transaksi
+        ROLLBACK;
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Pembayaran untuk pesanan ini sudah dilakukan sebelumnya';
     ELSEIF p_status_pesanan != 'confirmed' THEN
         -- Jika pesanan belum dikonfirmasi, batalkan transaksi
         ROLLBACK;
@@ -713,7 +725,7 @@ BEGIN
     START TRANSACTION;
 
     SELECT id_gedung, nama_gedung, harga_sewa, kapasitas, lokasi
-    FROM Gedung
+    FROM view_gedung
     ORDER BY id_gedung
     LIMIT p_offset, p_limit;
 
@@ -795,8 +807,8 @@ BEGIN
 
     START TRANSACTION;
 
-    SELECT id_wo, nama_wo, harga_paket 
-    FROM Wedding_Organizer
+    SELECT id_wo, nama_wo, harga_paket, deskripsi
+    FROM view_wedding_organizer
     ORDER BY id_wo
     LIMIT p_offset, p_limit;
 
@@ -877,23 +889,19 @@ BEGIN
     -- Get paginated results
     
     SELECT 
-        b.id_booking,
-        g.nama_gedung,
-        wo.nama_wo,
-        b.tgl_acara,
-        b.tgl_booking,
-        b.status_pesanan,
-        b.deskripsi
+        id_booking,
+        nama_gedung,
+        nama_wo,
+        tgl_acara,
+        tgl_booking,
+        status_pesanan,
+        deskripsi
     FROM 
-        Booking b
-    JOIN 
-        Gedung g ON b.id_gedung = g.id_gedung
-    JOIN 
-        Wedding_Organizer wo ON b.id_wo = wo.id_wo
-    WHERE 
-        b.id_pengguna = p_user_id
+        view_booking_details
+    WHERE
+        id_pengguna = p_user_id
     ORDER BY 
-        b.tgl_booking DESC
+        tgl_booking DESC
     LIMIT p_limit OFFSET offset_val;
 
     -- Return total count
@@ -901,6 +909,97 @@ BEGIN
 
     COMMIT;
 END
+
+CREATE or replace PROCEDURE GetAllDetailBooking (
+    IN p_page INT,
+    IN p_limit INT
+)
+BEGIN
+    DECLARE offset_val INT;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    SET offset_val = (p_page - 1) * p_limit;
+
+    START TRANSACTION;
+
+    -- Get total count
+    SELECT COUNT(id_booking) INTO @total_count
+    FROM Booking;
+
+    -- Get paginated results
+    
+    SELECT 
+        id_booking,
+        nama_pengguna,
+        nama_gedung,
+        nama_wo,
+        tgl_acara,
+        tgl_booking,
+        status_pesanan,
+        deskripsi
+    FROM 
+        view_booking_details
+    ORDER BY 
+        tgl_booking DESC
+    LIMIT p_limit OFFSET offset_val;
+
+    -- Return total count
+    SELECT @total_count AS total_count;
+
+    COMMIT;
+END
+
+CREATE or replace PROCEDURE GetDetailBookingByStatus(
+    IN p_page INT,
+    IN p_limit INT,
+    IN p_status_pesanan ENUM('pending', 'confirmed', 'cancelled')
+)
+BEGIN
+    DECLARE offset_val INT;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    SET offset_val = (p_page - 1) * p_limit;
+
+    START TRANSACTION;
+
+    -- Get total count
+    SELECT COUNT(id_booking) INTO @total_count
+    FROM Booking
+    WHERE status_pesanan = p_status_pesanan;
+
+    -- Get paginated results
+    
+    SELECT 
+        id_booking,
+        nama_pengguna,
+        nama_gedung,
+        nama_wo,
+        tgl_acara,
+        tgl_booking,
+        status_pesanan,
+        deskripsi
+    FROM 
+        view_booking_details
+    WHERE
+        status_pesanan = p_status_pesanan
+    ORDER BY 
+        tgl_booking DESC
+    LIMIT p_limit OFFSET offset_val;
+
+    -- Return total count
+    SELECT @total_count AS total_count;
+
+    COMMIT;
+END
+
 
 DELIMITER ;
 CREATE OR REPLACE PROCEDURE GetEmailPengguna(
@@ -921,6 +1020,39 @@ BEGIN
 
     COMMIT;
 END //
+
+CREATE OR REPLACE PROCEDURE ConfirmBooking(
+    IN p_id_booking INT
+)
+    
+BEGIN
+    DECLARE booking_exists INT;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+    SELECT COUNT (id_booking) INTO booking_exists
+    FROM Booking
+    WHERE id_booking = p_id_booking;
+
+    IF booking_exists = 0 THEN
+        ROLLBACK;
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Pesanan tidak ditemukan';
+    ELSE
+        COMMIT;
+        UPDATE Booking
+        SET status_pesanan = 'confirmed'
+        WHERE id_booking = p_id_booking;
+    END IF;
+END //
+
+
+
 
 
 DELIMITER ;
@@ -969,15 +1101,18 @@ DELIMITER ;
 
 
 -- VIEW
-CREATE VIEW View_Booking_Details AS
+CREATE or replace VIEW View_Booking_Details AS
 SELECT 
+    p.id_pengguna,
     b.id_booking,
     p.nama AS nama_pengguna,
     g.nama_gedung,
     wo.nama_wo,
     b.tgl_acara,
     b.tgl_booking,
-    b.status_pesanan
+    b.status_pesanan,
+    b.deskripsi
+    
 FROM 
     Booking b
 JOIN 
@@ -986,6 +1121,24 @@ JOIN
     Gedung g ON b.id_gedung = g.id_gedung
 JOIN 
     Wedding_Organizer wo ON b.id_wo = wo.id_wo;
+
+CREATE OR REPLACE VIEW view_booked
+SELECT 
+    p.id_pengguna,
+    p.nama,
+    b.id_booking,
+    g.id_gedung,
+    g.nama_gedung
+
+FROM 
+    Booking b
+JOIN
+    Pengguna p ON b.id_pengguna = p.id_pengguna
+JOIN
+    Gedung g ON b.id_gedung = g.id_gedung;
+   
+
+
 
 CREATE VIEW View_Transaction_Details AS
 SELECT 
@@ -1001,52 +1154,15 @@ JOIN
 JOIN 
     Pengguna pengguna ON b.id_pengguna = pengguna.id_pengguna;
 
+CREATE OR REPLACE VIEW View_Gedung AS
+SELECT id_gedung, nama_gedung, harga_sewa, kapasitas, lokasi
+FROM Gedung;
+
+CREATE OR REPLACE VIEW View_Wedding_Organizer AS
+SELECT id_wo, nama_wo, harga_paket, deskripsi
+FROM Wedding_Organizer;
 
 
-====== PER USECASE ======
--- 1. Register User
-CALL RegisterUser("Desti Nur Irawati", "Jl. Gunung Bakaran", "desti@gmail.com", "123456");
-CALL GetPenggunaDetails();
 
-
--- 2. Login User
-SELECT LoginUser("dhiee@gmail.com", "123456") ;
-
--- 3. Edit Profile
-call GetPenggunaDetails();
-CALL EditPengguna(6, 'Frieza Sadira', 'Jl. Swadaya', 'eja5432@gmail.com');
-
--- 4. Lihat Detail Pesanan
-SELECT * FROM View_Booking_Details;
-
--- 5. Cancel Pesanan
-SELECT * FROM View_Booking_Details;
-CALL UpdateBookingStatus(36, 'confirmed');
-
--- 6. Melakukan Pembayaran
-CALL CreatePayment(1, 6000.00, 'Pembayaran untuk paket pernikahan');
-
--- 7. Menambahkan Gedung yang tersedia
-CALL AddGedung (2000.00, 150, 'Jalan Kebangsaan No. 5', 'available', 'Gedung Indah');
-
--- 8. Mengubah detail gedung
-CALL GetAllGedung();
-CALL EditGedung(1, 150000, 100, 'Jalan Raya No. 1', 'available', 'Gedung Goku');
-
--- 9. Menambahkan Wedding Organizer
-CALL AddWeddingOrganizer('Wedding Planner B', 6000.00, 'Paket eksklusif untuk pernikahan');
-
--- 10. Mengubah detail Wedding Organizer
-CALL GetAllWeddingOrganizer();
-CALL EditWeddingOrganizer(1, 'Wedding Organizer Sadira', 5000.00, 'Paket lengkap untuk pernikahan');
-
--- 11. Membuat Pesanan
-CALL GetPenggunaDetails(1);
-CALL GetAllGedung();
-CALL CreateBooking("Ardhi Iwantara Saputra", "Gedung Sudirman Jaya", "Wedding Organizer Sadira", '2024-11-12', '2024-10-24');
-
-
-ALTER TABLE Pengguna
-ADD COLUMN role ENUM('user', 'admin') NOT NULL DEFAULT 'user';
 
 

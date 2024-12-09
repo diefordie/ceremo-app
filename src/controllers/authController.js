@@ -30,7 +30,7 @@ export const authController = {
 
                 return response
                     .status(201)
-                    .json({ success: true, message: 'Akun berhasil dibuat' , data: result[0][0] });
+                    .json({ success: true, message: 'Akun berhasil dibuat' });
             })
 
     },
@@ -69,5 +69,12 @@ export const authController = {
                 .status(200)
                 .json({ success: true, message: `Login Berhasil! Selamat Datang ${result[0][0].nama}`, data: hasilQuery });
         })
+    },
+
+    logout: (request, response) => {
+        response.clearCookie('token');
+        return response
+            .status(200)
+            .json({ success: true, message: 'Logout berhasil' });
     }
 }
